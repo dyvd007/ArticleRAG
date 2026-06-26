@@ -12,3 +12,6 @@ wheels/
 # Variáveis de ambiente (segredos)
 .env
 .env.*
+
+# Banco de dados vetorial local
+.chromadb/

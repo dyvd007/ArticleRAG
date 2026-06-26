@@ -24,7 +24,8 @@ from dotenv import load_dotenv
 import pdfplumber
 import chromadb
 from chromadb.utils import embedding_functions
-import google.generativeai as genai
+import vertexai
+from vertexai.generative_models import GenerativeModel, Content, Part
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURAÇÕES
@@ -32,13 +33,17 @@ import google.generativeai as genai
 load_dotenv()   # carrega as variáveis do .env
 DB_DIR          = Path(".chromadb")        # banco vetorial local
 COLLECTION_NAME = "artigos"
-CHUNK_SIZE      = 800                      # caracteres por chunk
-CHUNK_OVERLAP   = 150                      # sobreposição
-TOP_K           = 5                        # chunks recuperados por pergunta
+CHUNK_SIZE      = 1200                     # caracteres por chunk
+CHUNK_OVERLAP   = 200                      # sobreposição
+TOP_K           = 8                        # chunks recuperados por pergunta
+MIN_SCORE       = 0.45                     # descarta chunks com baixa similaridade coseno
 GEMINI_MODEL    = "gemini-2.5-flash"
-SENTENCE_MODEL  = "paraphrase-multilingual-MiniLM-L12-v2"  # multilíngue (50+ idiomas), local, gratuito
+SENTENCE_MODEL  = "intfloat/multilingual-e5-large"  # multilíngue, cross-lingual superior, local, gratuito
 
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+GCP_PROJECT  = os.environ.get("GCP_PROJECT", "")
+GCP_LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
+
+vertexai.init(project=GCP_PROJECT, location=GCP_LOCATION)
 
 LINHA  = "─" * 62
 DLINHA = "═" * 62
@@ -61,8 +66,7 @@ def get_collection():
 
 
 def get_gemini():
-    genai.configure(api_key=GOOGLE_API_KEY)
-    return genai.GenerativeModel(
+    return GenerativeModel(
         model_name=GEMINI_MODEL,
         system_instruction=SYSTEM_PROMPT,
     )
@@ -72,12 +76,32 @@ def get_gemini():
 # PARSING DE PDF
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _tem_duas_colunas(pag) -> bool:
+    """Detecta layout de duas colunas verificando zona vazia no centro da página."""
+    words = pag.extract_words()
+    if len(words) < 30:
+        return False
+    meio = pag.width / 2
+    margem = pag.width * 0.10
+    na_zona_central = sum(
+        1 for w in words
+        if (meio - margem) < (w["x0"] + w["x1"]) / 2 < (meio + margem)
+    )
+    return (na_zona_central / len(words)) < 0.05
+
+
 def extrair_texto(caminho: Path) -> str:
-    """Extrai texto de um PDF com pdfplumber."""
+    """Extrai texto de um PDF com pdfplumber, respeitando layout de duas colunas."""
     paginas = []
     with pdfplumber.open(caminho) as pdf:
         for i, pag in enumerate(pdf.pages):
-            texto = pag.extract_text(x_tolerance=2, y_tolerance=3) or ""
+            if _tem_duas_colunas(pag):
+                meio = pag.width / 2
+                col_esq = pag.crop((0, 0, meio, pag.height)).extract_text(x_tolerance=2, y_tolerance=3) or ""
+                col_dir = pag.crop((meio, 0, pag.width, pag.height)).extract_text(x_tolerance=2, y_tolerance=3) or ""
+                texto = (col_esq + "\n\n" + col_dir).strip()
+            else:
+                texto = pag.extract_text(x_tolerance=2, y_tolerance=3) or ""
             if texto.strip():
                 paginas.append(f"[p.{i+1}] {texto}")
     return "\n\n".join(paginas)
@@ -87,6 +111,10 @@ def limpar(texto: str) -> str:
     """Remove artefatos comuns de PDFs acadêmicos."""
     # Corrige hifenização
     texto = re.sub(r"-\n(\w)", r"\1", texto)
+    # Separa palavras coladas de PDFs com colunas duplas (ex: "varianceexplained" → "variance explained")
+    texto = re.sub(r"([a-z])([A-Z])", r"\1 \2", texto)
+    texto = re.sub(r"([a-zA-Z])(\d)", r"\1 \2", texto)
+    texto = re.sub(r"(\d)([a-zA-Z])", r"\1 \2", texto)
     # Colapsa múltiplas linhas em branco
     texto = re.sub(r"\n{3,}", "\n\n", texto)
     # Remove espaços duplos
@@ -331,7 +359,7 @@ Responda em português de forma clara, precisa e bem estruturada.
 Regras:
 1. Baseie-se EXCLUSIVAMENTE nos trechos fornecidos como contexto.
 2. Cite sempre a fonte (nome do arquivo) quando usar uma informação.
-3. Se a resposta não estiver nos trechos, diga: "Não encontrei essa informação nos artigos indexados."
+3. Se a informação específica não estiver nos trechos fornecidos, declare "Não encontrei essa informação nos trechos recuperados." Não infira além do que os trechos permitem nem combine informações de artigos diferentes para compor uma resposta que nenhum deles contém individualmente.
 4. Para comparações entre artigos, seja explícito sobre qual afirmação vem de qual fonte.
 5. Nunca invente referências, dados ou conclusões.
 """
@@ -354,7 +382,8 @@ def buscar(col, pergunta: str) -> list[dict]:
             "pagina":   meta.get("chunk_index", "?"),
             "score":    round(1 - dist, 3),   # distância coseno → similaridade
         })
-    return chunks
+    filtrados = [c for c in chunks if c["score"] >= MIN_SCORE]
+    return filtrados if filtrados else chunks[:1]
 
 
 def montar_contexto(chunks: list[dict]) -> str:
@@ -372,9 +401,12 @@ def gerar(modelo, pergunta: str, chunks: list[dict], historico: list[dict]) -> s
         f"Contexto recuperado dos artigos:\n{contexto}\n\n"
         f"Pergunta: {pergunta}"
     )
-    # Converte formato de histórico: "assistant" → "model" (formato Gemini)
+    # Converte formato de histórico para Content/Part do Vertex AI
     gemini_hist = [
-        {"role": "model" if m["role"] == "assistant" else "user", "parts": [m["content"]]}
+        Content(
+            role="model" if m["role"] == "assistant" else "user",
+            parts=[Part.from_text(m["content"])],
+        )
         for m in historico
     ]
     chat = modelo.start_chat(history=gemini_hist)
@@ -486,8 +518,8 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(0)
 
-    if not GOOGLE_API_KEY and sys.argv[1] in ("chat", "ask"):
-        print("\n❌ GOOGLE_API_KEY não definida.\n   export GOOGLE_API_KEY='AIza...'\n")
+    if not GCP_PROJECT and sys.argv[1] in ("chat", "ask"):
+        print("\n❌ GCP_PROJECT não definido.\n   Adicione GCP_PROJECT=seu-projeto ao .env\n")
         sys.exit(1)
 
     cmd  = sys.argv[1]
