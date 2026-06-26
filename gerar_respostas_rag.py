@@ -4,7 +4,6 @@ Lê o dataset de avaliação, gera as respostas do RAG e salva em CSV.
   python gerar_respostas_rag.py                     # usa dataset.csv
   python gerar_respostas_rag.py --dataset meu.csv   # dataset personalizado
   python gerar_respostas_rag.py --resume             # continua de onde parou
-  python gerar_respostas_rag.py --reset              # apaga o CSV e recomeça
 """
 
 import sys
@@ -69,12 +68,7 @@ def main():
     parser.add_argument("--dataset", type=str, default=DATASET_CSV,   help="CSV do dataset de entrada")
     parser.add_argument("--output",  type=str, default=RESPOSTAS_CSV, help="CSV de saída")
     parser.add_argument("--resume",  action="store_true",             help="Continua de onde parou")
-    parser.add_argument("--reset",   action="store_true",             help="Apaga o CSV e recomeça do zero")
     args = parser.parse_args()
-
-    if args.resume and args.reset:
-        print("❌ Use --resume OU --reset, não os dois.\n")
-        sys.exit(1)
 
     if not GCP_PROJECT:
         print("\n❌ GCP_PROJECT não definido.\n   Adicione GCP_PROJECT=seu-projeto ao .env\n")
@@ -82,10 +76,7 @@ def main():
 
     output_path = Path(args.output)
 
-    if args.reset and output_path.exists():
-        output_path.unlink()
-        print(f"  🔄 Reset: '{args.output}' removido.")
-    elif not args.resume and output_path.exists():
+    if not args.resume and output_path.exists():
         output_path.unlink()
 
     dataset = carregar_csv(args.dataset)
@@ -110,7 +101,7 @@ def main():
     print(f"  Já processadas       : {len(perguntas_feitas)}")
     print(f"  A processar          : {len(pendentes)}")
     print(f"  Arquivo de saída     : {args.output}")
-    modo = "resume" if args.resume else "reset" if args.reset else "normal"
+    modo = "resume" if args.resume else "normal"
     print(f"  Modo                 : {modo}")
     print(DLINHA)
 

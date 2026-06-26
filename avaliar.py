@@ -4,7 +4,6 @@ Avalia as respostas do RAG com LLM-as-Judge e salva métricas em CSV.
   python avaliar.py                          # usa respostas_rag.csv
   python avaliar.py --respostas meu.csv      # CSV personalizado
   python avaliar.py --resume                 # continua de onde parou
-  python avaliar.py --reset                  # apaga o CSV e recomeça
 """
 
 import sys
@@ -14,7 +13,7 @@ from pathlib import Path
 from statistics import mean
 from datetime import datetime
 
-from rag import get_collection, buscar, montar_contexto
+from rag import get_collection, buscar, montar_contexto, TOP_K
 from eval_utils import (
     GCP_PROJECT,
     get_gemini_judge,
@@ -44,7 +43,7 @@ FIELDNAMES_AVAL = (
     + [f"{m}_reasoning" for m in METRICAS]
 )
 
-FIELDNAMES_METRICAS = ["timestamp", "n_amostras"] + list(METRICAS)
+FIELDNAMES_METRICAS = ["timestamp", "top_k"] + list(METRICAS)
 
 
 def carregar_csv(path: str) -> list[dict]:
@@ -81,7 +80,7 @@ def avaliar_amostra(judge, col, amostra: dict) -> dict:
     prompt = PROMPT_AVALIAR_TUDO.format(
         pergunta=pergunta,
         gabarito=gabarito,
-        contexto=contexto_text[:8000],
+        contexto=contexto_text,
         resposta=resposta,
     )
     try:
@@ -138,12 +137,7 @@ def main():
     parser.add_argument("--output",    type=str, default=AVALIACOES_CSV, help="CSV de avaliações detalhadas")
     parser.add_argument("--metricas",  type=str, default=METRICAS_CSV,   help="CSV de métricas resumidas")
     parser.add_argument("--resume",    action="store_true",              help="Continua de onde parou")
-    parser.add_argument("--reset",     action="store_true",              help="Apaga o CSV e recomeça do zero")
     args = parser.parse_args()
-
-    if args.resume and args.reset:
-        print("❌ Use --resume OU --reset, não os dois.\n")
-        sys.exit(1)
 
     if not GCP_PROJECT:
         print("\n❌ GCP_PROJECT não definido.\n   Adicione GCP_PROJECT=seu-projeto ao .env\n")
@@ -151,10 +145,7 @@ def main():
 
     output_path = Path(args.output)
 
-    if args.reset and output_path.exists():
-        output_path.unlink()
-        print(f"  🔄 Reset: '{args.output}' removido.")
-    elif not args.resume and output_path.exists():
+    if not args.resume and output_path.exists():
         output_path.unlink()
 
     respostas = carregar_csv(args.respostas)
@@ -179,7 +170,7 @@ def main():
     print(f"  Já avaliadas         : {len(perguntas_avaliadas)}")
     print(f"  A avaliar            : {len(pendentes)}")
     print(f"  Arquivo de saída     : {args.output}")
-    modo = "resume" if args.resume else "reset" if args.reset else "normal"
+    modo = "resume" if args.resume else "normal"
     print(f"  Modo                 : {modo}")
     print(DLINHA)
 
@@ -207,8 +198,8 @@ def main():
     if resumo:
         escrever_header_m = not Path(args.metricas).exists()
         row_m = {
-            "timestamp":  datetime.now().isoformat(),
-            "n_amostras": len(todos_avaliados),
+            "timestamp": datetime.now().isoformat(),
+            "top_k":     TOP_K,
         }
         row_m.update({m: f"{v:.4f}" for m, v in resumo.items()})
         salvar_linha(args.metricas, row_m, FIELDNAMES_METRICAS, escrever_header_m)
