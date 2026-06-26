@@ -108,8 +108,7 @@ Cria `dataset.csv` com perguntas e gabaritos fixos gerados a partir dos artigos 
 ```bash
 uv run python gerar_respostas_rag.py
 # Opções:
-#   --resume   continua de onde parou
-#   --reset    apaga e recomeça do zero
+#   --resume   continua de onde parou (padrão: sobrescreve o arquivo)
 ```
 
 Lê o `dataset.csv`, consulta o RAG para cada pergunta e salva em `respostas_rag.csv`.
@@ -119,8 +118,7 @@ Lê o `dataset.csv`, consulta o RAG para cada pergunta e salva em `respostas_rag
 ```bash
 uv run python avaliar.py
 # Opções:
-#   --resume   continua de onde parou
-#   --reset    apaga e recomeça do zero
+#   --resume   continua de onde parou (padrão: sobrescreve o arquivo)
 ```
 
 Avalia cada resposta com o Gemini e salva resultados detalhados em `avaliacoes.csv` e o histórico de métricas em `metricas.csv`.
@@ -129,21 +127,38 @@ Avalia cada resposta com o Gemini e salva resultados detalhados em `avaliacoes.c
 
 Métricas calculadas com **LLM-as-Judge** (Gemini 2.5 Flash Lite via Vertex AI) sobre amostras do dataset de perguntas gerado a partir dos artigos indexados.
 
-| Data | Amostras | Faithfulness | Answer Relevancy | Context Precision | Context Recall |
-|------|----------|--------------|-----------------|-------------------|----------------|
-| 2026-06-24 | 15 | 0.7933 | 0.6800 | 0.8367 | 0.5000 |
-| 2026-06-24 | 15 | 0.7733 | 0.7333 | 0.8600 | 0.6800 |
-| 2026-06-25 | 14 | 0.8786 | 0.9000 | 0.9286 | 0.8857 |
-| 2026-06-26 | 15 | **0.9200** | **0.8533** | **0.9600** | **0.7533** |
+### Histórico de execuções
 
-**Última avaliação (2026-06-26):**
+| Data | TOP_K | Amostras | Faithfulness | Answer Relevancy | Context Precision | Context Recall |
+|------|-------|----------|--------------|-----------------|-------------------|----------------|
+| 2026-06-24 | 15 | 15 | 0.7933 | 0.6800 | 0.8367 | 0.5000 |
+| 2026-06-24 | 15 | 15 | 0.7733 | 0.7333 | 0.8600 | 0.6800 |
+| 2026-06-25 | 14 | 14 | 0.8786 | 0.9000 | 0.9286 | 0.8857 |
+| 2026-06-26 | 15 | 15 | 0.9200 | 0.8533 | 0.9600 | 0.7533 |
+
+### Experimento TOP_K (2026-06-26)
+
+Avaliação sistemática do impacto do parâmetro `TOP_K` (chunks recuperados por pergunta) nas métricas:
+
+| TOP_K | Faithfulness | Answer Relevancy | Context Precision | Context Recall |
+|-------|--------------|-----------------|-------------------|----------------|
+| 1  | 0.7933 | 0.5467 | 0.7067 | 0.3600 |
+| 3  | 0.9333 | 0.8200 | 0.9733 | 0.6600 |
+| 5  | 0.8467 | 0.7800 | 0.9867 | 0.7200 |
+| 10 | 0.8667 | 0.8533 | 0.9933 | 0.8933 |
+| 15 | 0.9333 | 0.8533 | 0.9400 | 0.8133 |
+| **20** | **0.9667** | **0.9600** | **0.9867** | **0.9133** |
+
+`TOP_K=20` apresentou o melhor desempenho geral e é o valor padrão atual.
+
+**Melhor resultado (TOP_K=20, 2026-06-26):**
 
 | Métrica | Valor | Descrição |
 |---------|-------|-----------|
-| Faithfulness | 0.92 | Respostas fiéis ao contexto recuperado |
-| Answer Relevancy | 0.85 | Relevância da resposta em relação à pergunta |
-| Context Precision | 0.96 | Precisão dos trechos recuperados |
-| Context Recall | 0.75 | Cobertura do contexto necessário |
+| Faithfulness | 0.9667 | Respostas fiéis ao contexto recuperado |
+| Answer Relevancy | 0.9600 | Relevância da resposta em relação à pergunta |
+| Context Precision | 0.9867 | Precisão dos trechos recuperados |
+| Context Recall | 0.9133 | Cobertura do contexto necessário |
 
 ## Estrutura do projeto
 
