@@ -138,27 +138,46 @@ Métricas calculadas com **LLM-as-Judge** (Gemini 2.5 Flash Lite via Vertex AI) 
 
 ### Experimento TOP_K (2026-06-26)
 
-Avaliação sistemática do impacto do parâmetro `TOP_K` (chunks recuperados por pergunta) nas métricas:
+Avaliação sistemática do impacto do parâmetro `TOP_K` (chunks recuperados por pergunta) nas métricas. O banco indexado tem **136 chunks no total** distribuídos entre os 3 artigos:
 
-| TOP_K | Faithfulness | Answer Relevancy | Context Precision | Context Recall |
-|-------|--------------|-----------------|-------------------|----------------|
-| 1  | 0.7933 | 0.5467 | 0.7067 | 0.3600 |
-| 3  | 0.9333 | 0.8200 | 0.9733 | 0.6600 |
-| 5  | 0.8467 | 0.7800 | 0.9867 | 0.7200 |
-| 10 | 0.8667 | 0.8533 | 0.9933 | 0.8933 |
-| 15 | 0.9333 | 0.8533 | 0.9400 | 0.8133 |
-| **20** | **0.9667** | **0.9600** | **0.9867** | **0.9133** |
+| Artigo | Chunks |
+|--------|--------|
+| Two-Photon Emissive Dyes | 63 |
+| PCA | 44 |
+| Técnica Difração Cônica | 29 |
 
-`TOP_K=20` apresentou o melhor desempenho geral e é o valor padrão atual.
+| TOP_K | Faithfulness | Answer Relevancy | Context Precision | Context Recall | Média |
+|-------|--------------|-----------------|-------------------|----------------|-------|
+| 1  | 0.7933 | 0.5467 | 0.7067 | 0.3600 | 0.6017 |
+| 3  | 0.9333 | 0.8200 | 0.9733 | 0.6600 | 0.8467 |
+| 5  | 0.8467 | 0.7800 | 0.9867 | 0.7200 | 0.8334 |
+| 10 | 0.8667 | 0.8533 | 0.9933 | 0.8933 | 0.9016 |
+| 15 | 0.9333 | 0.8533 | 0.9400 | 0.8133 | 0.8850 |
+| **20** | **0.9667** | 0.9600 | 0.9867 | 0.9133 | 0.9567 |
+| 25 | 0.8800 | 0.9180 | 0.9667 | 0.9200 | 0.9212 |
+| **30** | 0.9400 | **0.9800** | 0.9733 | **0.9600** | **0.9633** |
+| 35 | 0.8933 | 0.9333 | **0.9800** | 0.9200 | 0.9316 |
+| 40 | 0.9200 | 0.9733 | **0.9800** | 0.9467 | 0.9550 |
+| 50 | 0.9000 | 0.9267 | 0.9933 | 0.9667 | 0.9467 |
 
-**Melhor resultado (TOP_K=20, 2026-06-26):**
+**TOP_K=30 apresenta a maior média geral (0.9633) e é o valor padrão atual.**  
+TOP_K=20 tem o melhor Faithfulness isolado (0.9667).
 
-| Métrica | Valor | Descrição |
-|---------|-------|-----------|
-| Faithfulness | 0.9667 | Respostas fiéis ao contexto recuperado |
-| Answer Relevancy | 0.9600 | Relevância da resposta em relação à pergunta |
-| Context Precision | 0.9867 | Precisão dos trechos recuperados |
-| Context Recall | 0.9133 | Cobertura do contexto necessário |
+#### Por que as métricas se estabilizam acima de TOP_K=20
+
+A busca vetorial retorna os chunks mais similares do banco inteiro, não de um artigo específico. Isso cria um **ponto de saturação por artigo**: ao atingir o número de chunks disponíveis no artigo consultado, chunks adicionais vêm de outros artigos e são descartados pelo modelo (que identifica a fonte pelo metadado).
+
+- Para perguntas sobre difração cônica (29 chunks): saturação em TOP_K ≈ 29
+- Para perguntas sobre PCA (44 chunks): saturação em TOP_K ≈ 44
+- Para perguntas sobre Two-Photon (63 chunks): saturação em TOP_K ≈ 63
+
+O efeito é **assimétrico**: abaixo do ponto de saturação, a ausência de um chunk crítico derruba a resposta completamente (queda abrupta abaixo de TOP_K=10). Acima do ponto de saturação, o ruído extra não prejudica muito porque LLMs são tolerantes a contexto irrelevante.
+
+#### Limitação observada na avaliação com LLM-as-Judge
+
+A `context_precision` deveria cair ao incluir chunks de outros artigos (ruído), mas permanece alta após a saturação. Isso indica que o judge avalia o contexto de forma holística — verifica se a resposta foi gerada corretamente, não se cada chunk individualmente era relevante. A `faithfulness` é a métrica que melhor captura o impacto do ruído, com oscilação visível acima de TOP_K=20.
+
+O framework RAGAS original resolve isso avaliando cada chunk separadamente. Com a amostra atual de 15 perguntas, o sinal estatístico é fraco para capturar esse efeito com precisão.
 
 ## Estrutura do projeto
 
