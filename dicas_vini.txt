@@ -1,0 +1,8 @@
+em eval_rag.py, é gerado o dataset em gerar_dataset(), mas esse dataset não é salvo, fazendo com que toda vez que você rode o programa, você gere o dataset.
+O certo é ter um script só pra gerar o dataset de avaliação, com perguntas e respostas, e salvar ele em algum tipo de arquivo como csv. Depois, você tem um script que gera as respostas do rag para as perguntas, e são colocadas num csv com a pergunta, a resposta esperada e a resposta dada pelo modelo. Por fim, temos o script de avaliação, que, dado a pergunta, a resposta esperada e a resposta dada pelo rag, chama um llm que avalia dando nota de 0 a 1 para o quanto a resposta dada pelo modelo se aproxima a resposta esperada. 
+
+
+Outra feature para minimizar o custo com api é: para qualquer uma desses scripts, no meio da execução ele pode dar erro de api, e terminar o programa. Para evitar isso, faça cada um dos scripts tendo uma flag --resume ou --reset, sendo --resume para continuar de onde parou e --reset para começar tudo de novo. O --resume é para continuar caso a execução anterior tenha dado erro, e o --reset é caso você queira fazer tudo de novo.
+
+
+Coloque para ele gravar as métricas em csv também.
