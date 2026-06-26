@@ -14,7 +14,6 @@ Comandos disponíveis:
 
 import os
 import sys
-import json
 import re
 import textwrap
 from pathlib import Path
@@ -35,8 +34,7 @@ DB_DIR          = Path(".chromadb")        # banco vetorial local
 COLLECTION_NAME = "artigos"
 CHUNK_SIZE      = 1200                     # caracteres por chunk
 CHUNK_OVERLAP   = 200                      # sobreposição
-TOP_K           = 8                        # chunks recuperados por pergunta
-MIN_SCORE       = 0.45                     # descarta chunks com baixa similaridade coseno
+TOP_K           = 20                        # chunks recuperados por pergunta
 GEMINI_MODEL    = "gemini-2.5-flash"
 SENTENCE_MODEL  = "intfloat/multilingual-e5-large"  # multilíngue, cross-lingual superior, local, gratuito
 
@@ -382,8 +380,7 @@ def buscar(col, pergunta: str) -> list[dict]:
             "pagina":   meta.get("chunk_index", "?"),
             "score":    round(1 - dist, 3),   # distância coseno → similaridade
         })
-    filtrados = [c for c in chunks if c["score"] >= MIN_SCORE]
-    return filtrados if filtrados else chunks[:1]
+    return chunks
 
 
 def montar_contexto(chunks: list[dict]) -> str:
