@@ -20,7 +20,7 @@ from eval_utils import (
     chamar_gemini,
     parse_json_llm,
     METRICAS,
-    PROMPT_AVALIAR_TUDO,
+    PROMPTS_POR_METRICA,
 )
 
 RESPOSTAS_CSV  = "respostas_rag.csv"
@@ -74,27 +74,30 @@ def avaliar_amostra(judge, col, amostra: dict) -> dict:
     # Busca o contexto localmente (ChromaDB, sem custo de API)
     chunks        = buscar(col, pergunta)
     contexto_text = montar_contexto(chunks)
+    # Formato sem scores de similaridade para não ancorar o juiz em context_precision
+    contexto_numerado = "\n\n".join(
+        f"[Chunk {i+1}]\n{c['texto']}" for i, c in enumerate(chunks)
+    )
 
     resultado = dict(amostra)
 
-    prompt = PROMPT_AVALIAR_TUDO.format(
-        pergunta=pergunta,
-        gabarito=gabarito,
-        contexto=contexto_text,
-        resposta=resposta,
-    )
-    try:
-        texto      = chamar_gemini(judge, prompt)
-        julgamento = parse_json_llm(texto)
-        for nome in METRICAS:
-            m     = julgamento.get(nome, {})
-            score = m.get("score")
+    for nome, prompt_template in PROMPTS_POR_METRICA.items():
+        prompt = prompt_template.format(
+            pergunta=pergunta,
+            gabarito=gabarito,
+            contexto=contexto_text,
+            contexto_numerado=contexto_numerado,
+            resposta=resposta,
+        )
+        try:
+            texto      = chamar_gemini(judge, prompt)
+            julgamento = parse_json_llm(texto)
+            score = julgamento.get("score")
             if score is not None:
                 score = max(0.0, min(1.0, float(score)))
             resultado[nome]                = score
-            resultado[f"{nome}_reasoning"] = m.get("reasoning", "")
-    except Exception as e:
-        for nome in METRICAS:
+            resultado[f"{nome}_reasoning"] = julgamento.get("reasoning", "")
+        except Exception as e:
             resultado[nome]                = None
             resultado[f"{nome}_reasoning"] = f"Erro: {e}"
 

@@ -25,11 +25,15 @@ METRICAS = [
     "context_recall",
 ]
 
-PROMPT_AVALIAR_TUDO = """\
-Avalie as 4 métricas abaixo para a resposta gerada pelo RAG.
+PROMPT_FAITHFULNESS = """\
+Você é um avaliador rigoroso de sistemas RAG.
 
+## Tarefa
+Verifique se cada afirmação da resposta gerada tem suporte EXPLÍCITO no contexto recuperado.
+Não avalie se a resposta é útil, correta em termos gerais ou bem escrita — apenas se cada claim pode ser derivado do contexto fornecido.
+
+## Inputs
 Pergunta: {pergunta}
-Resposta correta (gabarito): {gabarito}
 
 Contexto recuperado:
 {contexto}
@@ -37,19 +41,134 @@ Contexto recuperado:
 Resposta gerada:
 {resposta}
 
-Métricas (score de 0.0 a 1.0 cada):
-1. faithfulness: a resposta só usa informações presentes no contexto? (1.0=totalmente fiel, 0.0=inventa informações)
-2. answer_relevancy: a resposta responde à pergunta? (1.0=completa, 0.0=não responde)
-3. context_precision: os trechos recuperados são relevantes para a pergunta? (1.0=todos relevantes, 0.0=nenhum relevante)
-4. context_recall: o contexto contém a informação necessária para chegar ao gabarito? (1.0=contém tudo, 0.0=não contém nada)
+## Definições
+- **Suportado**: o contexto afirma explicitamente, ou permite inferir diretamente sem conhecimento externo.
+- **Não suportado**: o contexto é omisso, ambíguo ou contradiz a afirmação. Conhecimento geral não conta como suporte.
 
-Responda SOMENTE com JSON válido, sem texto fora do JSON:
+## Passo a passo
+1. Extraia cada afirmação factual da resposta como claims independentes e atômicos.
+   Ignore saudações, opiniões sem fato e reformulações da própria pergunta.
+2. Para cada claim, localize o trecho do contexto que o sustenta (ou conclua pela ausência).
+3. Marque `suportado: true` apenas se o suporte for direto e sem ambiguidade.
+4. Calcule: score = claims_suportados / total_claims
+
+Responda SOMENTE com JSON válido:
 {{
-  "faithfulness":      {{"score": <float 0-1>, "reasoning": "<uma frase curta>"}},
-  "answer_relevancy":  {{"score": <float 0-1>, "reasoning": "<uma frase curta>"}},
-  "context_precision": {{"score": <float 0-1>, "reasoning": "<uma frase curta>"}},
-  "context_recall":    {{"score": <float 0-1>, "reasoning": "<uma frase curta>"}}
+  "claims": [
+    {{"claim": "<afirmação>", "suportado": true, "trecho_contexto": "<cite o trecho ou null>"}},
+    ...
+  ],
+  "claims_suportados": <int>,
+  "claims_totais": <int>,
+  "score": <float 0-1>,
+  "reasoning": "<uma frase explicando o score>"
 }}"""
+
+PROMPT_ANSWER_RELEVANCY = """\
+Você é um avaliador rigoroso de sistemas RAG.
+
+## Tarefa
+Avalie se a resposta gerada responde à pergunta de forma relevante e completa.
+NÃO avalie a veracidade da resposta — apenas se ela endereça o que foi perguntado.
+
+## Inputs
+Pergunta: {pergunta}
+
+Resposta gerada:
+{resposta}
+
+## Instruções
+Avalie:
+1. A resposta é sobre o mesmo tema da pergunta? (ou desvia para outro assunto?)
+2. A resposta aborda diretamente o que foi perguntado?
+3. A resposta contém informação suficiente para satisfazer a pergunta?
+
+Penalize respostas que:
+- Ignoram a pergunta ou respondem algo diferente
+- São excessivamente vagas ou evasivas sem chegar ao ponto
+- Contêm repetição ou enrolação em vez de responder ao núcleo da pergunta
+
+Responda SOMENTE com JSON válido:
+{{
+  "score": <float 0-1>,
+  "reasoning": "<uma frase explicando o score>"
+}}"""
+
+PROMPT_CONTEXT_PRECISION = """\
+Você é um avaliador rigoroso de sistemas RAG.
+
+## Tarefa
+Avalie se os trechos recuperados são relevantes para responder à pergunta.
+NÃO considere a resposta gerada — avalie apenas a relação entre pergunta, gabarito e contexto.
+
+## Inputs
+Pergunta: {pergunta}
+
+Gabarito (resposta correta de referência):
+{gabarito}
+
+Contexto recuperado (chunks numerados):
+{contexto_numerado}
+
+## Instruções
+Para cada chunk, classifique como:
+  - relevante: contém informação que contribui para produzir a resposta correta descrita no gabarito
+  - irrelevante: não tem relação com a pergunta nem com as informações necessárias para o gabarito
+Score = chunks_relevantes / total_chunks
+
+Responda SOMENTE com JSON válido:
+{{
+  "chunks": [
+    {{"chunk_id": 1, "relevante": true, "motivo": "<uma frase>"}},
+    ...
+  ],
+  "chunks_relevantes": <int>,
+  "total_chunks": <int>,
+  "score": <float 0-1>,
+  "reasoning": "<uma frase explicando o score>"
+}}"""
+
+PROMPT_CONTEXT_RECALL = """\
+Você é um avaliador rigoroso de sistemas RAG.
+
+## Tarefa
+Avalie se o contexto recuperado contém as informações necessárias para responder à pergunta conforme o gabarito.
+NÃO considere a resposta gerada — avalie apenas a relação entre contexto e gabarito.
+
+## Inputs
+Pergunta: {pergunta}
+
+Gabarito (resposta correta de referência):
+{gabarito}
+
+Contexto recuperado:
+{contexto}
+
+## Instruções
+Passo 1 — Liste as afirmações-chave do gabarito (fatos, números, nomes, relações) necessárias para responder à pergunta.
+Passo 2 — Para cada afirmação, verifique se o contexto contém suporte EXPLÍCITO ou IMPLÍCITO claro.
+          - "presente" = o contexto menciona ou deixa claro esse fato
+          - "ausente"  = o contexto não menciona; inferência externa não conta
+Passo 3 — Calcule: score = afirmações_presentes / total_afirmações
+
+Responda SOMENTE com JSON válido:
+{{
+  "afirmacoes": [
+    {{"afirmacao": "<fato do gabarito>", "presente": true, "trecho_contexto": "<cite o trecho ou null>"}},
+    ...
+  ],
+  "afirmacoes_presentes": <int>,
+  "afirmacoes_totais": <int>,
+  "score": <float 0-1>,
+  "reasoning": "<uma frase explicando o score>"
+}}"""
+
+PROMPTS_POR_METRICA = {
+    "faithfulness":      PROMPT_FAITHFULNESS,
+    "answer_relevancy":  PROMPT_ANSWER_RELEVANCY,
+    "context_precision": PROMPT_CONTEXT_PRECISION,
+    "context_recall":    PROMPT_CONTEXT_RECALL,
+}
 
 
 def get_gemini_judge():

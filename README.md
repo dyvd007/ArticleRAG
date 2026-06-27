@@ -123,6 +123,17 @@ uv run python avaliar.py
 
 Avalia cada resposta com o Gemini e salva resultados detalhados em `avaliacoes.csv` e o histórico de métricas em `metricas.csv`.
 
+### (Opcional) Executar varredura automática de TOP_K
+
+```bash
+uv run python run_experimentos.py
+# Opções:
+#   --top-k 1 3 5 10   valores customizados de TOP_K a testar
+#   --skip-existing     pula valores de TOP_K já presentes em metricas.csv
+```
+
+Automatiza a sequência gerar → avaliar para múltiplos valores de `TOP_K`, acumulando resultados em `metricas.csv`.
+
 ## Avaliação
 
 Métricas calculadas com **LLM-as-Judge** (Gemini 2.5 Flash Lite via Vertex AI) sobre amostras do dataset de perguntas gerado a partir dos artigos indexados.
@@ -136,7 +147,7 @@ Métricas calculadas com **LLM-as-Judge** (Gemini 2.5 Flash Lite via Vertex AI) 
 | 2026-06-25 | 14 | 14 | 0.8786 | 0.9000 | 0.9286 | 0.8857 |
 | 2026-06-26 | 15 | 15 | 0.9200 | 0.8533 | 0.9600 | 0.7533 |
 
-### Experimento TOP_K (2026-06-26)
+### Experimento TOP_K — Série 1 (2026-06-26, até 18:52)
 
 Avaliação sistemática do impacto do parâmetro `TOP_K` (chunks recuperados por pergunta) nas métricas. O banco indexado tem **136 chunks no total** distribuídos entre os 3 artigos:
 
@@ -160,8 +171,7 @@ Avaliação sistemática do impacto do parâmetro `TOP_K` (chunks recuperados po
 | 40 | 0.9200 | 0.9733 | **0.9800** | 0.9467 | 0.9550 |
 | 50 | 0.9000 | 0.9267 | 0.9933 | 0.9667 | 0.9467 |
 
-**TOP_K=30 apresenta a maior média geral (0.9633) e é o valor padrão atual.**  
-TOP_K=20 tem o melhor Faithfulness isolado (0.9667).
+**TOP_K=30 apresenta a maior média geral (0.9633).** TOP_K=20 tem o melhor Faithfulness isolado (0.9667).
 
 #### Por que as métricas se estabilizam acima de TOP_K=20
 
@@ -173,11 +183,44 @@ A busca vetorial retorna os chunks mais similares do banco inteiro, não de um a
 
 O efeito é **assimétrico**: abaixo do ponto de saturação, a ausência de um chunk crítico derruba a resposta completamente (queda abrupta abaixo de TOP_K=10). Acima do ponto de saturação, o ruído extra não prejudica muito porque LLMs são tolerantes a contexto irrelevante.
 
-#### Limitação observada na avaliação com LLM-as-Judge
+### Experimento TOP_K — Série 2 (2026-06-26, a partir de 20:47)
 
-A `context_precision` deveria cair ao incluir chunks de outros artigos (ruído), mas permanece alta após a saturação. Isso indica que o judge avalia o contexto de forma holística — verifica se a resposta foi gerada corretamente, não se cada chunk individualmente era relevante. A `faithfulness` é a métrica que melhor captura o impacto do ruído, com oscilação visível acima de TOP_K=20.
+Nova varredura com a avaliação de `context_precision` revisada — cada chunk é avaliado individualmente quanto à sua relevância para a resposta, o que reflete o critério original do framework RAGAS de forma mais fiel.
 
-O framework RAGAS original resolve isso avaliando cada chunk separadamente. Com a amostra atual de 15 perguntas, o sinal estatístico é fraco para capturar esse efeito com precisão.
+| TOP_K | Faithfulness | Answer Relevancy | Context Precision | Context Recall | Média |
+|-------|--------------|-----------------|-------------------|----------------|-------|
+| 1  | 0.6696 | 0.5733 | 0.7333 | 0.3811 | 0.5893 |
+| 3  | 0.8508 | 0.8600 | 0.5791 | 0.6910 | 0.7452 |
+| 5  | 0.8222 | 0.8733 | 0.4000 | 0.6957 | 0.6978 |
+| 10 | 0.9704 | 0.8733 | 0.3133 | 0.7817 | 0.7347 |
+| 20 | **1.0000** | **0.9733** | 0.1659 | 0.8867 | 0.7565 |
+| 25 | 0.9889 | 0.9400 | 0.2039 | 0.9238 | 0.7641 |
+| 30 | **1.0000** | 0.9400 | 0.1645 | **0.9554** | 0.7650 |
+| 35 | **1.0000** | 0.9667 | 0.1340 | 0.9483 | 0.7623 |
+| 40 | **1.0000** | 0.9467 | **0.1073** | 0.9094 | 0.7409 |
+
+#### Análise do trade-off precision × recall
+
+O padrão clássico de **precision vs. recall** ficou explícito nesta série:
+
+- **Faithfulness** e **Answer Relevancy** melhoram consistentemente com TOP_K, chegando a 1.00 e 0.97 para TOP_K ≥ 20 — o modelo não alucina e gera respostas altamente relevantes.
+- **Context Recall** sobe de 0.38 (TOP_K=1) para 0.96 (TOP_K=30), confirmando que o retriever está capturando quase todo o conteúdo necessário.
+- **Context Precision** colapsa de 0.73 (TOP_K=1) para 0.11 (TOP_K=40) — ao recuperar mais chunks, uma fração crescente é irrelevante para a pergunta específica, indicando ausência de reranking.
+
+Comparação direta com a Série 1 no mesmo TOP_K:
+
+| TOP_K | Precisão — Série 1 | Precisão — Série 2 |
+|-------|--------------------|--------------------|
+| 3  | 0.9733 | 0.5791 |
+| 5  | 0.9867 | 0.4000 |
+| 10 | 0.9933 | 0.3133 |
+| 20 | 0.9867 | 0.1659 |
+
+A queda revela que a Série 1 subestimava o ruído no contexto (avaliação holística do judge) enquanto a Série 2 detecta com mais precisão quantos chunks são de fato úteis por pergunta.
+
+#### Próximo passo sugerido
+
+Implementar um **reranker (cross-encoder)** após a recuperação vetorial para filtrar chunks irrelevantes antes de enviá-los ao LLM — isso deve recuperar a precisão sem sacrificar o recall e o faithfulness obtidos com TOP_K alto.
 
 ## Estrutura do projeto
 
@@ -188,6 +231,7 @@ AV FC1/
 ├── gerar_respostas_rag.py   # Gera respostas do RAG para o dataset
 ├── avaliar.py               # Avalia respostas com LLM-as-Judge
 ├── eval_utils.py            # Utilitários compartilhados de avaliação
+├── run_experimentos.py      # Varredura automática de TOP_K (gerar → avaliar em loop)
 ├── artigos/                 # PDFs para indexar
 ├── dataset.csv              # Perguntas e gabaritos de avaliação
 ├── respostas_rag.csv        # Respostas geradas pelo RAG
