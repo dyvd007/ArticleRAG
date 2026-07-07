@@ -138,18 +138,11 @@ Automatiza a sequência gerar → avaliar para múltiplos valores de `TOP_K`, ac
 
 Métricas calculadas com **LLM-as-Judge** (Gemini 2.5 Flash Lite via Vertex AI) sobre amostras do dataset de perguntas gerado a partir dos artigos indexados.
 
-### Histórico de execuções
+### Experimento TOP_K (2026-06-26, a partir de 20:47)
 
-| Data | TOP_K | Amostras | Faithfulness | Answer Relevancy | Context Precision | Context Recall |
-|------|-------|----------|--------------|-----------------|-------------------|----------------|
-| 2026-06-24 | 15 | 15 | 0.7933 | 0.6800 | 0.8367 | 0.5000 |
-| 2026-06-24 | 15 | 15 | 0.7733 | 0.7333 | 0.8600 | 0.6800 |
-| 2026-06-25 | 14 | 14 | 0.8786 | 0.9000 | 0.9286 | 0.8857 |
-| 2026-06-26 | 15 | 15 | 0.9200 | 0.8533 | 0.9600 | 0.7533 |
+Avaliação sistemática do impacto do parâmetro `TOP_K` (chunks recuperados por pergunta) nas métricas, com `context_precision` avaliado chunk a chunk quanto à sua relevância para a resposta — o que reflete o critério original do framework RAGAS de forma mais fiel.
 
-### Experimento TOP_K — Série 1 (2026-06-26, até 18:52)
-
-Avaliação sistemática do impacto do parâmetro `TOP_K` (chunks recuperados por pergunta) nas métricas. O banco indexado tem **136 chunks no total** distribuídos entre os 3 artigos:
+**Configuração de chunking usada neste experimento** (`rag.py`): `CHUNK_SIZE = 1200` caracteres, `CHUNK_OVERLAP = 200` caracteres. O banco indexado tinha **136 chunks no total** distribuídos entre os 3 artigos:
 
 | Artigo | Chunks |
 |--------|--------|
@@ -157,35 +150,7 @@ Avaliação sistemática do impacto do parâmetro `TOP_K` (chunks recuperados po
 | PCA | 44 |
 | Técnica Difração Cônica | 29 |
 
-| TOP_K | Faithfulness | Answer Relevancy | Context Precision | Context Recall | Média |
-|-------|--------------|-----------------|-------------------|----------------|-------|
-| 1  | 0.7933 | 0.5467 | 0.7067 | 0.3600 | 0.6017 |
-| 3  | 0.9333 | 0.8200 | 0.9733 | 0.6600 | 0.8467 |
-| 5  | 0.8467 | 0.7800 | 0.9867 | 0.7200 | 0.8334 |
-| 10 | 0.8667 | 0.8533 | 0.9933 | 0.8933 | 0.9016 |
-| 15 | 0.9333 | 0.8533 | 0.9400 | 0.8133 | 0.8850 |
-| **20** | **0.9667** | 0.9600 | 0.9867 | 0.9133 | 0.9567 |
-| 25 | 0.8800 | 0.9180 | 0.9667 | 0.9200 | 0.9212 |
-| **30** | 0.9400 | **0.9800** | 0.9733 | **0.9600** | **0.9633** |
-| 35 | 0.8933 | 0.9333 | **0.9800** | 0.9200 | 0.9316 |
-| 40 | 0.9200 | 0.9733 | **0.9800** | 0.9467 | 0.9550 |
-| 50 | 0.9000 | 0.9267 | 0.9933 | 0.9667 | 0.9467 |
-
-**TOP_K=30 apresenta a maior média geral (0.9633).** TOP_K=20 tem o melhor Faithfulness isolado (0.9667).
-
-#### Por que as métricas se estabilizam acima de TOP_K=20
-
-A busca vetorial retorna os chunks mais similares do banco inteiro, não de um artigo específico. Isso cria um **ponto de saturação por artigo**: ao atingir o número de chunks disponíveis no artigo consultado, chunks adicionais vêm de outros artigos e são descartados pelo modelo (que identifica a fonte pelo metadado).
-
-- Para perguntas sobre difração cônica (29 chunks): saturação em TOP_K ≈ 29
-- Para perguntas sobre PCA (44 chunks): saturação em TOP_K ≈ 44
-- Para perguntas sobre Two-Photon (63 chunks): saturação em TOP_K ≈ 63
-
-O efeito é **assimétrico**: abaixo do ponto de saturação, a ausência de um chunk crítico derruba a resposta completamente (queda abrupta abaixo de TOP_K=10). Acima do ponto de saturação, o ruído extra não prejudica muito porque LLMs são tolerantes a contexto irrelevante.
-
-### Experimento TOP_K — Série 2 (2026-06-26, a partir de 20:47)
-
-Nova varredura com a avaliação de `context_precision` revisada — cada chunk é avaliado individualmente quanto à sua relevância para a resposta, o que reflete o critério original do framework RAGAS de forma mais fiel.
+Esta é a única série mantida em `metricas.csv` como baseline válida — execuções anteriores usavam um prompt único e holístico para o juiz (em vez de prompts separados por métrica) e foram descartadas por subestimarem o ruído no contexto recuperado.
 
 | TOP_K | Faithfulness | Answer Relevancy | Context Precision | Context Recall | Média |
 |-------|--------------|-----------------|-------------------|----------------|-------|
@@ -206,17 +171,6 @@ O padrão clássico de **precision vs. recall** ficou explícito nesta série:
 - **Faithfulness** e **Answer Relevancy** melhoram consistentemente com TOP_K, chegando a 1.00 e 0.97 para TOP_K ≥ 20 — o modelo não alucina e gera respostas altamente relevantes.
 - **Context Recall** sobe de 0.38 (TOP_K=1) para 0.96 (TOP_K=30), confirmando que o retriever está capturando quase todo o conteúdo necessário.
 - **Context Precision** colapsa de 0.73 (TOP_K=1) para 0.11 (TOP_K=40) — ao recuperar mais chunks, uma fração crescente é irrelevante para a pergunta específica, indicando ausência de reranking.
-
-Comparação direta com a Série 1 no mesmo TOP_K:
-
-| TOP_K | Precisão — Série 1 | Precisão — Série 2 |
-|-------|--------------------|--------------------|
-| 3  | 0.9733 | 0.5791 |
-| 5  | 0.9867 | 0.4000 |
-| 10 | 0.9933 | 0.3133 |
-| 20 | 0.9867 | 0.1659 |
-
-A queda revela que a Série 1 subestimava o ruído no contexto (avaliação holística do judge) enquanto a Série 2 detecta com mais precisão quantos chunks são de fato úteis por pergunta.
 
 #### Próximo passo sugerido
 
