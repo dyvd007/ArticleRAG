@@ -32,8 +32,8 @@ from vertexai.generative_models import GenerativeModel, Content, Part
 load_dotenv()   # carrega as variáveis do .env
 DB_DIR          = Path(".chromadb")        # banco vetorial local
 COLLECTION_NAME = "artigos"
-CHUNK_SIZE      = 1200                     # caracteres por chunk
-CHUNK_OVERLAP   = 200                      # sobreposição
+CHUNK_SIZE      = 2200                     # caracteres por chunk
+CHUNK_OVERLAP   = 330                      # sobreposição
 TOP_K           = int(os.environ.get("TOP_K", "50"))  # chunks recuperados por pergunta
 GEMINI_MODEL    = "gemini-2.5-flash"
 SENTENCE_MODEL  = "intfloat/multilingual-e5-large"  # multilíngue, cross-lingual superior, local, gratuito

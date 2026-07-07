@@ -138,19 +138,21 @@ Automatiza a sequência gerar → avaliar para múltiplos valores de `TOP_K`, ac
 
 Métricas calculadas com **LLM-as-Judge** (Gemini 2.5 Flash Lite via Vertex AI) sobre amostras do dataset de perguntas gerado a partir dos artigos indexados.
 
-### Experimento TOP_K (2026-06-26, a partir de 20:47)
+### Experimento TOP_K × Chunking — 3 configurações (2026-06-26 e 2026-07-07)
 
 Avaliação sistemática do impacto do parâmetro `TOP_K` (chunks recuperados por pergunta) nas métricas, com `context_precision` avaliado chunk a chunk quanto à sua relevância para a resposta — o que reflete o critério original do framework RAGAS de forma mais fiel.
 
-**Configuração de chunking usada neste experimento** (`rag.py`): `CHUNK_SIZE = 1200` caracteres, `CHUNK_OVERLAP = 200` caracteres. O banco indexado tinha **136 chunks no total** distribuídos entre os 3 artigos:
+Cada uma das 3 execuções varreu `TOP_K` de 1 a 40, mas com uma configuração de chunking diferente (`rag.py`), permitindo comparar o efeito do tamanho do chunk além do efeito do `TOP_K`:
 
-| Artigo | Chunks |
-|--------|--------|
-| Two-Photon Emissive Dyes | 63 |
-| PCA | 44 |
-| Técnica Difração Cônica | 29 |
+| Execução | Data/Hora | `CHUNK_SIZE` | `CHUNK_OVERLAP` | Chunks no banco |
+|----------|-----------|---------------|------------------|-----------------|
+| 1 | 2026-06-26, 20:47–23:04 | 1200 | 200 | 136 (63 Two-Photon + 44 PCA + 29 Difração Cônica) |
+| 2 | 2026-07-07, 13:20–16:33 | 1800 | 300 | não registrado (banco reindexado antes da execução 3) |
+| 3 | 2026-07-07, 17:06–19:53 | 2200 | 330 | 72 (33 Two-Photon + 23 PCA + 16 Difração Cônica) |
 
-Esta é a única série mantida em `metricas.csv` como baseline válida — execuções anteriores usavam um prompt único e holístico para o juiz (em vez de prompts separados por métrica) e foram descartadas por subestimarem o ruído no contexto recuperado.
+#### Resultados por execução
+
+##### Execução 1 — `CHUNK_SIZE=1200` / `CHUNK_OVERLAP=200`
 
 | TOP_K | Faithfulness | Answer Relevancy | Context Precision | Context Recall | Média |
 |-------|--------------|-----------------|-------------------|----------------|-------|
@@ -164,17 +166,59 @@ Esta é a única série mantida em `metricas.csv` como baseline válida — exec
 | 35 | **1.0000** | 0.9667 | 0.1340 | 0.9483 | 0.7623 |
 | 40 | **1.0000** | 0.9467 | **0.1073** | 0.9094 | 0.7409 |
 
+##### Execução 2 — `CHUNK_SIZE=1800` / `CHUNK_OVERLAP=300`
+
+| TOP_K | Faithfulness | Answer Relevancy | Context Precision | Context Recall | Média |
+|-------|--------------|-----------------|-------------------|----------------|-------|
+| 1  | 0.5822 | 0.4400 | 0.4667 | 0.3336 | 0.4556 |
+| 3  | 0.9286 | 0.8933 | 0.6660 | 0.6405 | 0.7821 |
+| 5  | 0.9833 | 0.7933 | 0.4133 | 0.7266 | 0.7291 |
+| 10 | 0.9643 | 0.8667 | 0.2667 | 0.7517 | 0.7124 |
+| 20 | 0.9593 | **0.9733** | 0.1733 | 0.8899 | 0.7490 |
+| 25 | **1.0000** | 0.9133 | 0.1600 | 0.9211 | 0.7486 |
+| 30 | 0.9821 | 0.9667 | 0.1440 | 0.8917 | 0.7461 |
+| 35 | **1.0000** | 0.9467 | **0.1104** | **0.9250** | 0.7455 |
+| 40 | 0.9698 | 0.9600 | 0.1266 | 0.9178 | 0.7436 |
+
+##### Execução 3 — `CHUNK_SIZE=2200` / `CHUNK_OVERLAP=330`
+
+| TOP_K | Faithfulness | Answer Relevancy | Context Precision | Context Recall | Média |
+|-------|--------------|-----------------|-------------------|----------------|-------|
+| 1  | 0.3929 | 0.5786 | 0.5333 | 0.3648 | 0.4674 |
+| 3  | 0.7179 | 0.5067 | 0.4896 | 0.7054 | 0.6049 |
+| 5  | 0.8857 | 0.9333 | 0.4000 | 0.7163 | 0.7338 |
+| 10 | **1.0000** | 0.9600 | 0.3000 | 0.8137 | 0.7684 |
+| 20 | 0.9478 | 0.8933 | 0.2133 | 0.8333 | 0.7219 |
+| 25 | **1.0000** | 0.9733 | 0.1557 | 0.9100 | 0.7598 |
+| 30 | 0.9196 | **0.9800** | 0.1400 | 0.9261 | 0.7414 |
+| 35 | **1.0000** | 0.9533 | **0.0990** | **0.9483** | 0.7502 |
+| 40 | 0.9881 | 0.9733 | 0.1150 | 0.9400 | 0.7541 |
+
 #### Análise do trade-off precision × recall
 
-O padrão clássico de **precision vs. recall** ficou explícito nesta série:
+O padrão clássico de **precision vs. recall** aparece nas 3 configurações:
 
-- **Faithfulness** e **Answer Relevancy** melhoram consistentemente com TOP_K, chegando a 1.00 e 0.97 para TOP_K ≥ 20 — o modelo não alucina e gera respostas altamente relevantes.
-- **Context Recall** sobe de 0.38 (TOP_K=1) para 0.96 (TOP_K=30), confirmando que o retriever está capturando quase todo o conteúdo necessário.
-- **Context Precision** colapsa de 0.73 (TOP_K=1) para 0.11 (TOP_K=40) — ao recuperar mais chunks, uma fração crescente é irrelevante para a pergunta específica, indicando ausência de reranking.
+- **Faithfulness** satura perto de 1.00 a partir de TOP_K ≈ 10–20 nas 3 execuções — o modelo praticamente não alucina, independente do tamanho do chunk.
+- **Context Recall** sobe com o TOP_K em todas as execuções, aproximando-se de ~0.92–0.95 nos valores mais altos.
+- **Context Precision** colapsa com o aumento do TOP_K nas 3 configurações, chegando ao mínimo (~0.10–0.11) em TOP_K=35 em todas elas — reforçando que falta reranking independentemente do tamanho do chunk.
+
+#### Efeito do tamanho do chunk sobre o TOP_K ideal
+
+O ponto mais interessante ao comparar as 3 execuções é **onde fica o pico da média geral** (custo-benefício entre as 4 métricas):
+
+| Execução | `CHUNK_SIZE` | TOP_K ótimo | Média no pico |
+|----------|--------------|-------------|----------------|
+| 1 | 1200 | 30 | 0.7650 |
+| 2 | 1800 | 3 | 0.7821 |
+| 3 | 2200 | 10 | 0.7684 |
+
+Com chunks maiores, o pico da média se desloca para valores de TOP_K muito menores — o que faz sentido, já que cada chunk carrega mais texto e menos chunks são necessários para cobrir o contexto relevante. Com `CHUNK_SIZE=1800`, por exemplo, apenas 3 chunks recuperados já produzem `context_precision=0.6660`, bem acima do observado com chunks menores no mesmo TOP_K.
+
+Essa comparação é feita com **apenas 1 execução por configuração**, então parte da diferença observada também reflete a variabilidade natural do LLM-as-Judge (não isolamos o efeito do chunking do ruído de execução única) — o padrão "chunk maior → TOP_K ótimo menor" é uma hipótese a confirmar repetindo cada configuração antes de adotá-la como conclusão definitiva.
 
 #### Próximo passo sugerido
 
-Implementar um **reranker (cross-encoder)** após a recuperação vetorial para filtrar chunks irrelevantes antes de enviá-los ao LLM — isso deve recuperar a precisão sem sacrificar o recall e o faithfulness obtidos com TOP_K alto.
+Implementar um **reranker (cross-encoder)** após a recuperação vetorial para filtrar chunks irrelevantes antes de enviá-los ao LLM — isso deve recuperar a precisão sem sacrificar o recall e o faithfulness obtidos com TOP_K alto. Também vale repetir cada configuração de chunking (1200/1800/2200) algumas vezes para confirmar se o deslocamento do TOP_K ótimo é real ou ruído do LLM-as-Judge.
 
 ## Estrutura do projeto
 
