@@ -138,17 +138,17 @@ Automatiza a sequência gerar → avaliar para múltiplos valores de `TOP_K`, ac
 
 Métricas calculadas com **LLM-as-Judge** (Gemini 2.5 Flash Lite via Vertex AI) sobre amostras do dataset de perguntas gerado a partir dos artigos indexados.
 
-### Experimento TOP_K × Chunking — 3 configurações (2026-06-26 e 2026-07-07)
+### Experimento TOP_K × Chunking — 3 configurações
 
 Avaliação sistemática do impacto do parâmetro `TOP_K` (chunks recuperados por pergunta) nas métricas, com `context_precision` avaliado chunk a chunk quanto à sua relevância para a resposta — o que reflete o critério original do framework RAGAS de forma mais fiel.
 
 Cada uma das 3 execuções varreu `TOP_K` de 1 a 40, mas com uma configuração de chunking diferente (`rag.py`), permitindo comparar o efeito do tamanho do chunk além do efeito do `TOP_K`:
 
-| Execução | Data/Hora | `CHUNK_SIZE` | `CHUNK_OVERLAP` | Chunks no banco |
-|----------|-----------|---------------|------------------|-----------------|
-| 1 | 2026-06-26, 20:47–23:04 | 1200 | 200 | 136 (63 Two-Photon + 44 PCA + 29 Difração Cônica) |
-| 2 | 2026-07-07, 13:20–16:33 | 1800 | 300 | não registrado (banco reindexado antes da execução 3) |
-| 3 | 2026-07-07, 17:06–19:53 | 2200 | 330 | 72 (33 Two-Photon + 23 PCA + 16 Difração Cônica) |
+| Execução | `CHUNK_SIZE` | `CHUNK_OVERLAP` | Chunks no banco |
+|----------|---------------|------------------|-----------------|
+| 1 | 1200 | 200 | 136 (63 Two-Photon + 44 PCA + 29 Difração Cônica) |
+| 2 | 1800 | 300 | não registrado (banco reindexado antes da execução 3) |
+| 3 | 2200 | 330 | 72 (33 Two-Photon + 23 PCA + 16 Difração Cônica) |
 
 #### Resultados por execução
 
